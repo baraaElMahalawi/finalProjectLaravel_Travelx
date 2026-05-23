@@ -8,6 +8,7 @@ use App\Http\Controllers\RoomController;
 use App\Http\Controllers\BookingController;
 
 // UI Design Update for Hotel Booking System - Travelx
+// Branch
 
 // الصفحة الرئيسية
 Route::get('/', function () {
