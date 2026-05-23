@@ -1,14 +1,17 @@
-# Travelx - Travel Management System ✈️
+travelx _ نظام ادارة السفر 
+وصف المشروع 
 
-## Overview
-A professional Laravel 11 project for managing hotel rooms and travel bookings.
+هو نظام متكامل لادرة حجوزات الفنادق  , تم بناءهه باستخدام لغة لارفيل 
+يتيح الموقع لللمستخدمين روئية الفنادق التي عرضها المسؤولين و حجز الغرف و استكمال باقي اجرائات حجز الغرفة 
 
-## Features
-- Room Management
-- Secure Booking System
-- RESTful API Support (Sanctum)
-- Admin Dashboard 
- 
+المميزات : 
+نظام الصلاحيات 
+ادارة الغرف 
+نظام الحجز 
+ و API
+
+ اعداد الطالب براء المحلاوي 
+ الرقم الجامعي 120220772
  
  
  
