@@ -7,6 +7,8 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\RoomController;
 use App\Http\Controllers\BookingController;
 
+// UI Design Update for Hotel Booking System - Travelx
+
 // الصفحة الرئيسية
 Route::get('/', function () {
     return view('welcome');
