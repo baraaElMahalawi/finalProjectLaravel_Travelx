@@ -1,0 +1,1424 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Booking;
+use App\Models\Room;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+
+class AdminController extends Controller
+{
+    
+      //إنشاء نسخة جديدة من الكنترولر.
+    public function __construct()
+    {
+        // Middleware يتم التعامل معه في ملف routes
+    }
+
+    
+     // عرض لوحة تحكم الأدمن مع إحصائيات عامة.
+    public function dashboard()
+    {
+        // حساب إجمالي عدد الغرف
+        $totalRooms = Room::count();
+        // حساب عدد الغرف المتاحة 
+        $availableRooms = Room::where('availability', true)->count();
+        // حساب إجمالي الحجوزات
+        $totalBookings = Booking::count();
+        // حساب الحجوزات المعلقة
+        $pendingBookings = Booking::where('status', 'pending')->count();
+        // حساب الحجوزات المؤكدة
+        $confirmedBookings = Booking::where('status', 'confirmed')->count();
+        // حساب عدد المستخدمين العاديين
+        $totalUsers = User::where('role', 'user')->count();
+
+        // جلب أحدث 5 حجوزات مع بيانات المستخدم والغرفة المرتبطة
+        $recentBookings = Booking::with(['user', 'room'])
+            ->latest()
+            ->take(5)
+            ->get();
+
+        // إرجاع صفحة لوحة التحكم مع البيانات المحسوبة
+        return view('admin.dashboard', compact(
+            'totalRooms',
+            'availableRooms',
+            'totalBookings',
+            'pendingBookings',
+            'confirmedBookings',
+            'totalUsers',
+            'recentBookings'
+        ));
+    }
+
+     // عرض جميع الغرف في لوحة تحكم الأدمن مع التصفح.
+    public function rooms()
+    {
+        $rooms = Room::latest()->paginate(10);
+        return view('admin.rooms.index', compact('rooms'));
+    }
+
+    
+     //عرض جميع الحجوزات في لوحة تحكم الأدمن مع التصفح.
+    public function bookings()
+    {
+        $bookings = Booking::with(['user', 'room'])
+            ->latest()
+            ->paginate(15);
+        return view('admin.bookings.index', compact('bookings'));
+    }
+
+     // عرض الحجوزات المعلقة  في لوحة تحكم الأدمن.
+    public function pendingBookings()
+    {
+        $bookings = Booking::with(['user', 'room'])
+            ->where('status', 'pending')
+            ->latest()
+            ->paginate(15);
+        return view('admin.bookings.pending', compact('bookings'));
+    }
+
+     //عرض جميع المستخدمين العاديين في لوحة تحكم الأدمن مع التصفح.
+    public function users()
+    {
+        $users = User::where('role', 'user')
+            ->latest()
+            ->paginate(15);
+        return view('admin.users.index', compact('users'));
+    }
+
+    
+      // عرض صفحة ملف الأدمن الشخصي.
+    public function profile()
+    {
+        return view('admin.profile');
+    }
+
+    
+     // تحديث بيانات ملف الأدمن .
+    public function updateProfile(Request $request)
+    {
+        // التحقق من صحة البيانات 
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'username' => 'required|string|max:255|unique:users,username,' . Auth::id(),
+            'email' => 'required|string|email|max:255|unique:users,email,' . Auth::id(),
+            'password' => 'nullable|string|min:8|confirmed',
+        ]);
+
+        // جلب المستخدم الحالي
+        $user = Auth::user();
+        $user->name = $request->name;
+        $user->username = $request->username;
+        $user->email = $request->email;
+
+        // تحديث كلمة المرور إذا تم إدخالها
+        if ($request->filled('password')) {
+            $user->password = bcrypt($request->password);
+        }
+
+        $user->save();
+
+        return redirect()->route('admin.profile')
+            ->with('success', 'تم تحديث الملف الشخصي بنجاح.');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Room;
+use App\Models\Booking;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+
+class UserController extends Controller
+{
+
+    public function dashboard()
+    {
+        $user = Auth::user();
+        $recentBookings = $user->bookings()->with('room')->latest()->take(3)->get();
+        $totalBookings = $user->bookings()->count();
+        $confirmedBookings = $user->bookings()->where('status', 'confirmed')->count();
+        $pendingBookings = $user->bookings()->where('status', 'pending')->count();
+        
+        $featuredRooms = Room::where('availability', true)
+            ->where('room_stars', '>=', 4)
+            ->take(6)
+            ->get();
+
+        return view('user.dashboard', compact(
+            'recentBookings',
+            'totalBookings',
+            'confirmedBookings',
+            'pendingBookings',
+            'featuredRooms'
+        ));
+    }
+
+
+    public function profile()
+    {
+        return view('user.profile');
+    }
+
+
+    public function updateProfile(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'username' => 'required|string|max:255|unique:users,username,' . Auth::id(),
+            'email' => 'required|string|email|max:255|unique:users,email,' . Auth::id(),
+            'password' => 'nullable|string|min:8|confirmed',
+        ]);
+
+        $user = Auth::user();
+        $user->name = $request->name;
+        $user->username = $request->username;
+        $user->email = $request->email;
+
+        if ($request->filled('password')) {
+            $user->password = Hash::make($request->password);
+        }
+
+        $user->save();
+
+        return redirect()->route('user.profile')
+            ->with('success', 'Profile updated successfully.');
+    }
+
+
+    public function bookings()
+    {
+        $bookings = Auth::user()->bookings()->with('room')->latest()->paginate(10);
+        return view('bookings.index', compact('bookings'));
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+abstract class Controller
+{
+    //
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+
+
+  // كنترولر المصادقة
+class AuthController extends Controller
+{
+    
+      // عرض نموذج تسجيل الدخول
+    public function showLoginForm()
+    {
+        return view('auth.login');// إرجاع صفحة تسجيل الدخول
+    }
+
+     //معالجة طلب تسجيل الدخول
+
+    public function login(Request $request)
+    {
+        // التحقق من صحة البيانات المدخلة
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email', 
+            'password' => 'required', 
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        // الحصول على بيانات الاعتماد البريد الإلكتروني وكلمة المرور
+        $credentials = $request->only('email', 'password');
+
+        // محاولة تسجيل الدخول
+        if (Auth::attempt($credentials)) {
+            // تجديد الجلسة لأمان إضافي
+            $request->session()->regenerate();
+
+            // التحقق من نوع المستخدم وتوجيهه
+            if (Auth::user()->isAdmin()) {
+                return redirect()->route('admin.dashboard'); 
+            }
+
+            return redirect()->route('user.dashboard'); 
+        }
+
+        return back()->withErrors([
+            'email' => 'The provided credentials do not match our records.',
+        ])->withInput();
+    }
+
+    
+     // عرض نموذج التسجيل     
+    public function showRegistrationForm()
+    {
+        return view('auth.register');
+    }
+
+    
+      //معالجة طلب التسجيل     
+    public function register(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255', 
+            'username' => 'required|string|max:255|unique:users', 
+            'email' => 'required|string|email|max:255|unique:users', 
+            'password' => 'required|string|min:8|confirmed', 
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        // إنشاء مستخدم جديد
+        $user = User::create([
+            'name' => $request->name,
+            'username' => $request->username,
+            'email' => $request->email,
+            'password' => Hash::make($request->password), // تشفير كلمة المرور
+            'role' => 'user', 
+        ]);
+
+        Auth::login($user); // تسجيل دخول المستخدم الجديد تلقائياً
+
+        // توجيه المستخدم للوحة المستخدم
+        return redirect()->route('user.dashboard');
+    }
+
+    
+     //معالجة طلب تسجيل الخروج
+    public function logout(Request $request)
+    {
+        Auth::logout(); 
+
+        $request->session()->invalidate();// إلغاء الجلسة الحالية
+        
+        $request->session()->regenerateToken();// تجديد رمز الجلسة لأمان إضافي
+
+        return redirect('/');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Room;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+
+
+   //كنترولر الغرف 
+class RoomController extends Controller
+{
+    public function index()
+    {
+        // جلب الغرف المتاحة  مع تقسيم الصفحات الى ١٢ في كا صفحة
+        $rooms = Room::where('availability', true)->paginate(12);
+        
+        return view('rooms.index', compact('rooms'));
+    }
+
+     // عرض تفاصيل غرفة محددة
+    public function show(Room $room)
+    {
+        return view('rooms.show', compact('room'));
+    }
+
+      //عرض نموذج إنشاء غرفة جديدة للأدمن 
+    public function create()
+    {
+        return view('admin.rooms.create');
+    }
+
+      //حفظ غرفة جديدة للأدمن 
+    public function store(Request $request)
+    {
+        // التحقق من صحة البيانات المدخلة
+        //nullable اختياري/ unique فريد
+        $validator = Validator::make($request->all(), [
+            'room_number' => 'required|string|unique:rooms',
+            'room_type' => 'required|string', 
+            'price_per_night' => 'required|numeric|min:0', 
+            'room_view' => 'nullable|string', 
+            'pool_type' => 'nullable|string',
+            'room_stars' => 'required|integer|min:1|max:5', 
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ]);
+
+        // إذا فشل التحقق، إرجاع الأخطاء
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        // الحصول على جميع البيانات
+        $data = $request->all();
+        
+        // معالجة رفع الصورة
+        if ($request->hasFile('image')) {
+            $imageName = time().'.'.$request->image->extension(); // إنشاء اسم فريد للصورة باستخدام الوقت الحالي
+            $request->image->move(public_path('images/rooms'), $imageName);// نقل الصورة إلى مجلد الصور
+            $data['image'] = $imageName;
+        }
+
+        // معالجة checkbox
+        $data['availability'] = $request->has('availability'); 
+        $data['has_parking'] = $request->has('has_parking'); 
+        $data['has_airport_transfer'] = $request->has('has_airport_transfer'); 
+        $data['has_wifi'] = $request->has('has_wifi'); 
+        $data['has_coffee_maker'] = $request->has('has_coffee_maker');
+        $data['has_bar'] = $request->has('has_bar'); 
+        $data['has_breakfast'] = $request->has('has_breakfast'); 
+
+        Room::create($data);
+
+        return redirect()->route('admin.rooms.index')
+            ->with('success', 'Room created successfully.');
+    }
+
+     //عرض نموذج تعديل غرفة  للأدمن 
+    public function edit(Room $room)
+    {
+        return view('admin.rooms.edit', compact('room'));// إرجاع تعديل الغرفة
+    }
+
+
+      //تحديث غرفة محددة للأدمن 
+    public function update(Request $request, Room $room)
+    {
+        // التحقق من صحة البيانات مع استثناء الغرفة الحالية من فحص التفرد
+        $validator = Validator::make($request->all(), [
+            'room_number' => 'required|string|unique:rooms,room_number,'.$room->id,
+            'room_type' => 'required|string',
+            'price_per_night' => 'required|numeric|min:0',
+            'room_view' => 'nullable|string',
+            'pool_type' => 'nullable|string',
+            'room_stars' => 'required|integer|min:1|max:5',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        $data = $request->all();
+        
+        // معالجة رفع الصورة الجديدة
+        if ($request->hasFile('image')) {
+            if ($room->image && file_exists(public_path('images/rooms/'.$room->image))) {
+                unlink(public_path('images/rooms/'.$room->image));
+            }
+            
+            // رفع الصورة الجديدة
+            $imageName = time().'.'.$request->image->extension();
+            $request->image->move(public_path('images/rooms'), $imageName);
+            $data['image'] = $imageName;
+        }
+
+        // معالجة الحقول المنطقية
+        $data['availability'] = $request->has('availability');
+        $data['has_parking'] = $request->has('has_parking');
+        $data['has_airport_transfer'] = $request->has('has_airport_transfer');
+        $data['has_wifi'] = $request->has('has_wifi');
+        $data['has_coffee_maker'] = $request->has('has_coffee_maker');
+        $data['has_bar'] = $request->has('has_bar');
+        $data['has_breakfast'] = $request->has('has_breakfast');
+
+
+        // تحديث بيانات الغرفة
+        $room->update($data);
+
+        return redirect()->route('admin.rooms.index')
+            ->with('success', 'Room updated successfully.');
+    }
+
+        //حذف غرفة محددة للأدمن فقط
+    public function destroy(Room $room)
+    {
+        // حذف صورة الغرفة إذا كانت موجودة
+        if ($room->image && file_exists(public_path('images/rooms/'.$room->image))) {
+            unlink(public_path('images/rooms/'.$room->image));
+        }
+
+        $room->delete();
+
+        return redirect()->route('admin.rooms.index')
+            ->with('success', 'Room deleted successfully.');
+    }
+}
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\Room;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+
+class RoomApiController extends Controller
+{
+    
+     // جلب جميع الغرف مع إمكانية الفلترة والفرز.
+    public function index(Request $request)
+    {
+        $query = Room::query();
+
+        // فلترة حسب التوفر
+        if ($request->has('available')) {
+            $query->where('availability', $request->boolean('available'));
+        }
+
+        if ($request->has('room_type')) {
+            $query->where('room_type', 'like', '%' . $request->room_type . '%');
+        }
+
+        if ($request->has('min_price')) {
+            $query->where('price_per_night', '>=', $request->min_price);
+        }
+
+        if ($request->has('max_price')) {
+            $query->where('price_per_night', '<=', $request->max_price);
+        }
+
+        if ($request->has('has_wifi')) {
+            $query->where('has_wifi', $request->boolean('has_wifi'));
+        }
+
+        if ($request->has('has_parking')) {
+            $query->where('has_parking', $request->boolean('has_parking'));
+        }
+
+        if ($request->has('has_breakfast')) {
+            $query->where('has_breakfast', $request->boolean('has_breakfast'));
+        }
+
+        // الفرز حسب السعر أو النجوم أو تاريخ الإنشاء
+        if ($request->has('sort_by')) {
+            $sortBy = $request->sort_by;
+            $sortOrder = $request->get('sort_order', 'asc');
+            
+            if (in_array($sortBy, ['price_per_night', 'room_stars', 'created_at'])) {
+                $query->orderBy($sortBy, $sortOrder);
+            }
+        } else {
+            $query->latest();
+        }
+
+        // عدد النتائج في الصفحةافتراضي 
+        $perPage = $request->get('per_page', 10);
+        $rooms = $query->paginate($perPage);
+
+        // إرجاع النتائج بصيغة JSON
+        return response()->json([
+            'success' => true,
+            'data' => $rooms
+        ]);
+    }
+
+    
+     // جلب تفاصيل غرفة واحدة
+    public function show($id)
+    {
+        $room = Room::find($id);
+
+        if (!$room) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الغرفة غير موجودة'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $room
+        ]);
+    }
+
+    
+      //إنشاء غرفة جديدة للمسؤول 
+    public function store(Request $request)
+    {
+        // التحقق من صلاحية المسؤول
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        // التحقق من صحة البيانات المدخلة
+        $validator = Validator::make($request->all(), [
+            'room_number' => 'required|string|unique:rooms',
+            'room_type' => 'required|string',
+            'price_per_night' => 'required|numeric|min:0',
+            'availability' => 'boolean',
+            'image' => 'nullable|string',
+            'room_view' => 'nullable|string',
+            'pool_type' => 'nullable|string',
+            'room_stars' => 'integer|min:1|max:5',
+            'has_parking' => 'boolean',
+            'has_airport_transfer' => 'boolean',
+            'has_wifi' => 'boolean',
+            'has_coffee_maker' => 'boolean',
+            'has_bar' => 'boolean',
+            'has_breakfast' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'أخطاء في التحقق من البيانات',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // إنشاء الغرفة
+        $room = Room::create($request->all());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم إنشاء الغرفة بنجاح',
+            'data' => $room
+        ], 201);
+    }
+
+    
+     //تحديث غرفةللمسؤول 
+    public function update(Request $request, $id)
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        $room = Room::find($id);
+
+        if (!$room) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الغرفة غير موجودة'
+            ], 404);
+        }
+
+        // التحقق من صحة البيانات المدخلة
+        $validator = Validator::make($request->all(), [
+            'room_number' => 'required|string|unique:rooms,room_number,' . $id,
+            'room_type' => 'required|string',
+            'price_per_night' => 'required|numeric|min:0',
+            'availability' => 'boolean',
+            'image' => 'nullable|string',
+            'room_view' => 'nullable|string',
+            'pool_type' => 'nullable|string',
+            'room_stars' => 'integer|min:1|max:5',
+            'has_parking' => 'boolean',
+            'has_airport_transfer' => 'boolean',
+            'has_wifi' => 'boolean',
+            'has_coffee_maker' => 'boolean',
+            'has_bar' => 'boolean',
+            'has_breakfast' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'أخطاء في التحقق من البيانات',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // تحديث بيانات الغرفة
+        $room->update($request->all());
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تحديث الغرفة بنجاح',
+            'data' => $room
+        ]);
+    }
+
+    
+      //حذف غرفةللمسؤول 
+    public function destroy(Request $request, $id)
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        $room = Room::find($id);
+
+        if (!$room) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الغرفة غير موجودة'
+            ], 404);
+        }
+
+        // التحقق من وجود حجوزات نشطة على الغرفة
+        $activeBookings = $room->bookings()->whereIn('status', ['pending', 'confirmed'])->count();
+
+        if ($activeBookings > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'لا يمكن حذف غرفة تحتوي على حجوزات نشطة'
+            ], 400);
+        }
+
+        // حذف الغرفة
+        $room->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم حذف الغرفة بنجاح'
+        ]);
+    }
+
+
+      //جلب الغرف المتاحة لتواريخ محددة
+    public function available(Request $request)
+    {
+        // التحقق من صحة التواريخ المدخلة
+        $validator = Validator::make($request->all(), [
+            'checkin_date' => 'required|date|after_or_equal:today',
+            'checkout_date' => 'required|date|after:checkin_date',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'أخطاء في التحقق من البيانات',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $checkinDate = $request->checkin_date;
+        $checkoutDate = $request->checkout_date;
+
+        // جلب الغرف المتاحة التي لا تحتوي على حجوزات متعارضة
+        $availableRooms = Room::where('availability', true)
+            ->whereDoesntHave('bookings', function ($query) use ($checkinDate, $checkoutDate) {
+                $query->where('status', '!=', 'cancelled')
+                    ->where(function ($q) use ($checkinDate, $checkoutDate) {
+                        $q->whereBetween('checkin_date', [$checkinDate, $checkoutDate])
+                          ->orWhereBetween('checkout_date', [$checkinDate, $checkoutDate])
+                          ->orWhere(function ($subQ) use ($checkinDate, $checkoutDate) {
+                              $subQ->where('checkin_date', '<=', $checkinDate)
+                                   ->where('checkout_date', '>=', $checkoutDate);
+                          });
+                    });
+            })
+            ->get();
+
+        // إرجاع الغرف المتاحة مع بيانات التواريخ وعدد الغرف
+        return response()->json([
+            'success' => true,
+            'data' => $availableRooms,
+            'meta' => [
+                'checkin_date' => $checkinDate,
+                'checkout_date' => $checkoutDate,
+                'total_available' => $availableRooms->count()
+            ]
+        ]);
+    }
+}
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\Booking;
+use App\Models\Room;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+
+class BookingApiController extends Controller
+{
+    
+     // جلب حجوزات المستخدم
+    public function index(Request $request)
+    {
+        // جلب الحجوزات مع بيانات الغرفة المرتبطة
+        $query = $request->user()->bookings()->with('room');
+
+        //الحالة
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->has('from_date')) {
+            $query->where('checkin_date', '>=', $request->from_date);
+        }
+
+        if ($request->has('to_date')) {
+            $query->where('checkout_date', '<=', $request->to_date);
+        }
+
+        // عدد النتائج في الصفحة افتراضي 
+        $perPage = $request->get('per_page', 10);
+        $bookings = $query->latest()->paginate($perPage);
+
+        // إرجاع النتائج بصيغة JSON
+        return response()->json([
+            'success' => true,
+            'data' => $bookings
+        ]);
+    }
+
+     // جلب جميع الحجوزات للمسؤول فقط
+    public function adminIndex(Request $request)
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        $query = Booking::with(['user', 'room']);
+
+        // فلترة حسب الحالة
+        if ($request->has('status')) {
+            $query->where('status', $request->status);
+        }
+
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        if ($request->has('room_id')) {
+            $query->where('room_id', $request->room_id);
+        }
+
+        if ($request->has('from_date')) {
+            $query->where('checkin_date', '>=', $request->from_date);
+        }
+
+        if ($request->has('to_date')) {
+            $query->where('checkout_date', '<=', $request->to_date);
+        }
+
+        // عدد النتائج في الصفحة افتراضي 15
+        $perPage = $request->get('per_page', 15);
+        $bookings = $query->latest()->paginate($perPage);
+
+        // إرجاع النتائج بصيغة JSON
+        return response()->json([
+            'success' => true,
+            'data' => $bookings
+        ]);
+    }
+
+    
+     // جلب تفاصيل حجز معين
+    public function show(Request $request, $id)
+    {
+        $booking = Booking::with(['user', 'room'])->find($id);
+
+        if (!$booking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الحجز غير موجود'
+            ], 404);
+        }
+
+        // التحقق من ملكية الحجز أو صلاحية المسؤول
+        if ($booking->user_id !== $request->user()->id && !$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح'
+            ], 403);
+        }
+
+        // إرجاع بيانات الحجز
+        return response()->json([
+            'success' => true,
+            'data' => $booking
+        ]);
+    }
+
+    
+      //إنشاء حجز جديد
+    public function store(Request $request)
+    {
+        // التحقق من صحة البيانات 
+        $validator = Validator::make($request->all(), [
+            'room_id' => 'required|exists:rooms,id',
+            'checkin_date' => 'required|date|after_or_equal:today',
+            'checkout_date' => 'required|date|after:checkin_date',
+            'guests' => 'required|integer|min:1|max:10',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'أخطاء في التحقق من البيانات',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $room = Room::find($request->room_id);
+
+        // التحقق من توفر الغرفة
+        if (!$room->isAvailable()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الغرفة غير متوفرة للحجز'
+            ], 400);
+        }
+
+        // التحقق من وجود حجوزات متعارضة
+        $conflictingBooking = Booking::where('room_id', $request->room_id)
+            ->where('status', '!=', 'cancelled')
+            ->where(function ($query) use ($request) {
+                $query->whereBetween('checkin_date', [$request->checkin_date, $request->checkout_date])
+                    ->orWhereBetween('checkout_date', [$request->checkin_date, $request->checkout_date])
+                    ->orWhere(function ($q) use ($request) {
+                        $q->where('checkin_date', '<=', $request->checkin_date)
+                          ->where('checkout_date', '>=', $request->checkout_date);
+                    });
+            })
+            ->exists();
+
+        if ($conflictingBooking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الغرفة محجوزة بالفعل في التواريخ المحددة'
+            ], 400);
+        }
+
+        // إنشاء الحجز الجديد بحالة معلق
+        $booking = Booking::create([
+            'user_id' => $request->user()->id,
+            'room_id' => $request->room_id,
+            'checkin_date' => $request->checkin_date,
+            'checkout_date' => $request->checkout_date,
+            'guests' => $request->guests,
+            'status' => 'pending',
+        ]);
+
+        $booking->load(['user', 'room']);
+
+        // إرجاع استجابة نجاح مع بيانات الحجز
+        return response()->json([
+            'success' => true,
+            'message' => 'تم إنشاء الحجز بنجاح. في انتظار تأكيد المسؤول.',
+            'data' => $booking
+        ], 201);
+    }
+
+    
+     // إلغاء حجز 
+    public function cancel(Request $request, $id)
+    {
+        $booking = Booking::find($id);
+
+        if (!$booking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الحجز غير موجود'
+            ], 404);
+        }
+
+        // التحقق من ملكية الحجز
+        if ($booking->user_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح'
+            ], 403);
+        }
+
+        if ($booking->status === 'cancelled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'الحجز ملغي بالفعل'
+            ], 400);
+        }
+
+        // تحديث حالة الحجز إلى ملغي
+        $booking->update(['status' => 'cancelled']);
+
+        // إرجاع استجابة نجاح مع بيانات الحجز
+        return response()->json([
+            'success' => true,
+            'message' => 'تم إلغاء الحجز بنجاح',
+            'data' => $booking
+        ]);
+    }
+
+    
+     //تأكيد حجز للمسؤول 
+    public function confirm(Request $request, $id)
+    {
+        // التحقق من صلاحية المسؤول
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        $booking = Booking::find($id);
+
+        if (!$booking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الحجز غير موجود'
+            ], 404);
+        }
+
+        if ($booking->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'يمكن تأكيد الحجوزات المعلقة فقط'
+            ], 400);
+        }
+
+        // تحديث حالة الحجز إلى مؤكد
+        $booking->update(['status' => 'confirmed']);
+        $booking->load(['user', 'room']);
+
+        // إرجاع استجابة نجاح مع بيانات الحجز
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تأكيد الحجز بنجاح',
+            'data' => $booking
+        ]);
+    }
+
+    
+     // إلغاء حجز من المسؤول
+    public function adminCancel(Request $request, $id)
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        $booking = Booking::find($id);
+
+        if (!$booking) {
+            return response()->json([
+                'success' => false,
+                'message' => 'الحجز غير موجود'
+            ], 404);
+        }
+
+        if ($booking->status === 'cancelled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'الحجز ملغي بالفعل'
+            ], 400);
+        }
+
+        // تحديث حالة الحجز إلى ملغي
+        $booking->update(['status' => 'cancelled']);
+        $booking->load(['user', 'room']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم إلغاء الحجز بنجاح',
+            'data' => $booking
+        ]);
+    }
+
+    
+     //جلب الحجوزات المعلقة للمسؤول 
+    public function pending(Request $request)
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        $perPage = $request->get('per_page', 15);
+        $bookings = Booking::with(['user', 'room'])
+            ->where('status', 'pending')
+            ->latest()
+            ->paginate($perPage);
+
+        // إرجاع النتائج بصيغة JSON
+        return response()->json([
+            'success' => true,
+            'data' => $bookings
+        ]);
+    }
+
+    
+      //جلب إحصائيات الحجوزات للمسؤول 
+    public function statistics(Request $request)
+    {
+        // التحقق من صلاحية المسؤول
+        if (!$request->user()->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'غير مصرح. يتطلب صلاحيات المسؤول.'
+            ], 403);
+        }
+
+        // حساب إحصائيات الحجوزات المختلفة
+        $totalBookings = Booking::count();
+        $pendingBookings = Booking::where('status', 'pending')->count();
+        $confirmedBookings = Booking::where('status', 'confirmed')->count();
+        $cancelledBookings = Booking::where('status', 'cancelled')->count();
+
+        $todayBookings = Booking::whereDate('created_at', today())->count();
+        $thisMonthBookings = Booking::whereMonth('created_at', now()->month)
+            ->whereYear('created_at', now()->year)
+            ->count();
+
+        // إرجاع الإحصائيات بصيغة JSON
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'total_bookings' => $totalBookings,
+                'pending_bookings' => $pendingBookings,
+                'confirmed_bookings' => $confirmedBookings,
+                'cancelled_bookings' => $cancelledBookings,
+                'today_bookings' => $todayBookings,
+                'this_month_bookings' => $thisMonthBookings,
+            ]
+        ]);
+    }
+}
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+
+class AuthApiController extends Controller
+{
+    
+     // تسجيل مستخدم جديد
+    public function register(Request $request)
+    {
+        // التحقق من صحة البيانات المدخلة
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'username' => 'required|string|max:255|unique:users',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'أخطاء في التحقق من البيانات',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $user = User::create([
+            'name' => $request->name,
+            'username' => $request->username,
+            'email' => $request->email,
+            'password' => Hash::make($request->password),
+            'role' => 'user',
+        ]);
+
+        // إنشاء توكن وصول للمستخدم الجديد
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        // إرجاع استجابة نجاح مع بيانات المستخدم والتوكن
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تسجيل المستخدم بنجاح',
+            'data' => [
+                'user' => $user,
+                'token' => $token,
+                'token_type' => 'Bearer'
+            ]
+        ], 201);
+    }
+
+    
+     //تسجيل دخول المستخدم
+    public function login(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'password' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'أخطاء في التحقق من البيانات',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // محاولة تسجيل الدخول باستخدام البريد وكلمة المرور
+        if (!Auth::attempt($request->only('email', 'password'))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'بيانات اعتماد غير صحيحة'
+            ], 401);
+        }
+
+        // جلب المستخدم الحالي
+        $user = Auth::user();
+        // إنشاء توكن وصول جديد
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        // إرجاع استجابة نجاح مع بيانات المستخدم والتوكن
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تسجيل الدخول بنجاح',
+            'data' => [
+                'user' => $user,
+                'token' => $token,
+                'token_type' => 'Bearer'
+            ]
+        ]);
+    }
+
+    
+      //تسجيل خروج المستخدم
+    public function logout(Request $request)
+    {
+        // حذف التوكن الحالي للمستخدم
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تسجيل الخروج بنجاح'
+        ]);
+    }
+
+    
+     // جلب بيانات الملف الشخصي للمستخدم
+    public function profile(Request $request)
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $request->user()
+        ]);
+    }
+
+    
+      //تحديث بيانات الملف الشخصي للمستخدم
+    public function updateProfile(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'username' => 'required|string|max:255|unique:users,username,' . $request->user()->id,
+            'email' => 'required|string|email|max:255|unique:users,email,' . $request->user()->id,
+            'password' => 'nullable|string|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'أخطاء في التحقق من البيانات',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // تحديث بيانات المستخدم
+        $user = $request->user();
+        $user->name = $request->name;
+        $user->username = $request->username;
+        $user->email = $request->email;
+
+        // تحديث كلمة المرور إذا تم إدخالها
+        if ($request->filled('password')) {
+            $user->password = Hash::make($request->password);
+        }
+
+        // حفظ التغييرات
+        $user->save();
+
+        // إرجاع  نجاح مع بيانات المستخدم المحدثة
+        return response()->json([
+            'success' => true,
+            'message' => 'تم تحديث الملف الشخصي بنجاح',
+            'data' => $user
+        ]);
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Booking;
+use App\Models\Room;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Validator;
+
+
+ // كنترولر الحجوزات
+class BookingController extends Controller
+{
+    //index. صفحة عرض الحجوزات
+
+
+    public function index()//عرض حجوزات المستخدم
+    {
+        // جلب الحجوزات الخاصة بالمستخدم مع بيانات الغرفة و مرتبة حسب الأحدث، مع تقسيم الصفحات
+        $bookings = Auth::user()->bookings()->with('room')->latest()->paginate(10);
+        
+        return view('bookings.index', compact('bookings'));
+    }
+
+    
+      // عرض نموذج إنشاء حجز جديد    
+    public function create(Room $room)
+    {
+        if (!$room->isAvailable()) {
+            return redirect()->route('rooms.index')
+                ->with('error', 'This room is not available for booking.');
+        }
+
+        // إرجاع صفحة إنشاء الحجز مع بيانات الغرفة
+        return view('bookings.create', compact('room'));
+    }
+
+
+    public function store(Request $request)// حفظ حجز جديد
+    {
+        $validator = Validator::make($request->all(), [
+            'room_id' => 'required|exists:rooms,id', 
+            'checkin_date' => 'required|date|after_or_equal:today',
+            'checkout_date' => 'required|date|after:checkin_date',
+            'guests' => 'required|integer|min:1|max:10', 
+        ]);
+
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        // جلب بيانات الغرفة
+        $room = Room::findOrFail($request->room_id); 
+        //findOrFail : sql تُسهل لتعامل مع قاعدة البيانات
+        //  باستخدام كائنات بي اتش بي بدلًا من كتابة استعلامات  مباشرة.
+
+        if (!$room->isAvailable()) {
+            return redirect()->route('rooms.index')
+                ->with('error', 'This room is not available for booking.');
+        }
+
+        // التحقق من وجود حجوزات متعارضة في نفس الفترة
+        $conflictingBooking = Booking::where('room_id', $request->room_id)
+            ->where('status', '!=', 'cancelled')
+            ->where(function ($query) use ($request) {
+                $query->whereBetween('checkin_date', [$request->checkin_date, $request->checkout_date])
+                    ->orWhereBetween('checkout_date', [$request->checkin_date, $request->checkout_date])
+                    ->orWhere(function ($q) use ($request) {
+                        $q->where('checkin_date', '<=', $request->checkin_date)
+                          ->where('checkout_date', '>=', $request->checkout_date);
+                    });
+            })
+            ->exists();
+
+        if ($conflictingBooking) {
+            return redirect()->back()
+                ->with('error', 'Room is already booked for the selected dates.')
+                ->withInput();
+        }
+
+        // إنشاء الحجز الجديد بحالة معلق
+        $booking = Booking::create([
+            'user_id' => Auth::id(),
+            'room_id' => $request->room_id,
+            'checkin_date' => $request->checkin_date,
+            'checkout_date' => $request->checkout_date,
+            'guests' => $request->guests,
+            'status' => 'pending',
+        ]);
+
+        return redirect()->route('bookings.show', $booking)
+            ->with('success', 'Booking created successfully! Waiting for admin confirmation.');
+    }
+
+    //عرض تفاصيل حجز محدد
+    public function show(Booking $booking)
+    {
+        if ($booking->user_id !== Auth::id() && !Auth::user()->isAdmin()) {
+            abort(403);//(ممنوع)
+        }
+
+        return view('bookings.show', compact('booking'));
+    }
+
+     //إلغاء حجز للمستخدم 
+    public function cancel(Booking $booking)
+    {
+        if ($booking->user_id !== Auth::id()) {
+            abort(403);
+        }
+
+        if ($booking->status === 'cancelled') {
+            return redirect()->back()
+                ->with('error', 'Booking is already cancelled.');
+        }
+
+        $booking->update(['status' => 'cancelled']);
+
+        return redirect()->route('bookings.index')
+            ->with('success', 'Booking cancelled successfully.');
+    }
+
+      //تأكيد حجز للأدمن 
+    public function confirm(Booking $booking)
+    {
+        if (!Auth::user()->isAdmin()) {
+            abort(403);
+        }
+
+        $booking->update(['status' => 'confirmed']);
+
+        return redirect()->back()
+            ->with('success', 'Booking confirmed successfully.');
+    }
+
+    
+      //إلغاء حجز للأدمن 
+    public function adminCancel(Booking $booking)
+    {
+        if (!Auth::user()->isAdmin()) {
+            abort(403);
+        }
+
+        $booking->update(['status' => 'cancelled']);
+
+        return redirect()->back()
+            ->with('success', 'Booking cancelled successfully.');
+    }
+}
