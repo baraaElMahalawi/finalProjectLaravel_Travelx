@@ -37,7 +37,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/profile', [UserController::class, 'profile'])->name('user.profile');
     Route::put('/profile', [UserController::class, 'updateProfile'])->name('user.profile.update');
     
-   // Route::get('/my-bookings', [UserController::class, 'bookings'])->name('user.bookings');
+    Route::get('/my-bookings', [UserController::class, 'bookings'])->name('user.bookings');
     
     Route::get('/bookings', [BookingController::class, 'index'])->name('bookings.index');
     Route::get('/rooms/{room}/book', [BookingController::class, 'create'])->name('bookings.create');
